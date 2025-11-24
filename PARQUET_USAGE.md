@@ -25,7 +25,7 @@ pip install -r requirements.txt
 ```bash
 python scripts/prepare_data.py \
     --parquet \
-    --input-dir pre_train_data_python \
+    --input-dir /workspace/pre_train_data_python \
     --output data/train_corpus.txt
 ```
 
@@ -199,11 +199,40 @@ du -h data/train_corpus.txt
 
 ## 后续步骤
 
-处理完数据后，可以使用处理好的文本文件训练 BPE tokenizer：
+处理完数据后，可以使用处理好的文本文件训练 BPE tokenizer。
+
+### 快速训练（推荐，1小时内完成）
+
+使用抽样模式，只使用 10-20% 的数据训练：
+
+```bash
+# 使用 15% 的数据训练，预计 30-60 分钟
+python scripts/train_tokenizer.py \
+    --input data/train_corpus.txt \
+    --output output/tokenizer \
+    --vocab-size 50000 \
+    --use-iterator \
+    --sample-rate 0.15
+```
+
+### 全量训练
+
+使用全部数据训练（需要 3-8 小时）：
 
 ```bash
 python scripts/train_tokenizer.py \
-    --train-file data/train_corpus.txt \
-    --vocab-size 32000 \
-    --output-dir output/
+    --input data/train_corpus.txt \
+    --output output/tokenizer \
+    --vocab-size 50000 \
+    --use-iterator
 ```
+
+### 抽样率建议
+
+| 抽样率 | 数据量 (103GB 的比例) | 预计训练时间 | 适用场景 |
+|--------|---------------------|-------------|---------|
+| 0.1 (10%) | ~10GB | 20-40 分钟 | 快速测试 |
+| 0.15 (15%) | ~15GB | 30-60 分钟 | **推荐：平衡质量和速度** |
+| 0.2 (20%) | ~20GB | 40-80 分钟 | 更高质量 |
+| 0.5 (50%) | ~50GB | 1.5-3 小时 | 高质量 |
+| 1.0 (100%) | ~103GB | 3-8 小时 | 最高质量（通常不必要） |

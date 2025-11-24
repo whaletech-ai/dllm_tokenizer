@@ -38,7 +38,7 @@ python scripts/train_tokenizer.py \
 
 ```bash
 python scripts/train_tokenizer.py \
-  --input data/raw/*.txt \
+  --input data/*.txt \
   --output output \
   --vocab-size 50000 \
   --use-iterator \

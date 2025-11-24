@@ -2,6 +2,8 @@
 """
 BPE Tokenizer 训练脚本
 支持大规模数据训练，输出 HuggingFace 兼容的配置文件
+ps aux | grep train_tokenizer
+ps aux | grep python
 """
 
 import os
@@ -11,6 +13,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional
 import psutil
 from tqdm import tqdm
+import random
 
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
@@ -267,7 +270,8 @@ class BPETokenizerTrainer:
 
 def batch_iterator(
     file_paths: List[str],
-    batch_size: int = 1000
+    batch_size: int = 1000,
+    sample_rate: float = 1.0
 ) -> Iterator[List[str]]:
     """
     批量迭代文件内容（内存高效）
@@ -275,6 +279,7 @@ def batch_iterator(
     Args:
         file_paths: 文件路径列表
         batch_size: 每批大小
+        sample_rate: 抽样比例（0.0-1.0），1.0 表示使用全部数据
 
     Yields:
         文本行批次
@@ -283,6 +288,10 @@ def batch_iterator(
         batch = []
         with open(file_path, 'r', encoding='utf-8') as f:
             for line in f:
+                # 如果启用抽样，随机跳过一些行
+                if sample_rate < 1.0 and random.random() > sample_rate:
+                    continue
+
                 line = line.strip()
                 if line:
                     batch.append(line)
@@ -293,6 +302,30 @@ def batch_iterator(
             # 处理最后一批
             if batch:
                 yield batch
+
+
+def sampled_file_iterator(
+    file_paths: List[str],
+    sample_rate: float = 1.0
+) -> Iterator[str]:
+    """
+    抽样迭代文件内容（逐行）
+
+    Args:
+        file_paths: 文件路径列表
+        sample_rate: 抽样比例（0.0-1.0）
+
+    Yields:
+        文本行
+    """
+    for file_path in file_paths:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                # 随机抽样
+                if random.random() <= sample_rate:
+                    line = line.strip()
+                    if line:
+                        yield line
 
 
 def main():
@@ -311,13 +344,27 @@ def main():
                        help='使用迭代器训练（更省内存）')
     parser.add_argument('--batch-size', type=int, default=1000,
                        help='批次大小（仅在使用迭代器时有效）')
+    parser.add_argument('--sample-rate', type=float, default=1.0,
+                       help='抽样比例（0.0-1.0），1.0表示使用全部数据。'
+                            '推荐：0.1-0.2 可将训练时间从数小时缩短到1小时内')
 
     args = parser.parse_args()
+
+    # 验证抽样比例
+    if not 0.0 < args.sample_rate <= 1.0:
+        raise ValueError("sample-rate 必须在 (0.0, 1.0] 区间内")
 
     # 验证输入文件
     for file_path in args.input:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"文件不存在: {file_path}")
+
+    # 显示抽样信息
+    if args.sample_rate < 1.0:
+        print(f"\n{'='*60}")
+        print(f"抽样模式: 使用 {args.sample_rate*100:.1f}% 的数据进行训练")
+        print(f"预计可将训练时间从数小时缩短到 1 小时以内")
+        print(f"{'='*60}\n")
 
     # 创建训练器
     trainer = BPETokenizerTrainer(
@@ -333,10 +380,17 @@ def main():
     if args.use_iterator:
         # 使用迭代器训练（内存高效）
         print("使用迭代器模式训练...")
-        iterator = batch_iterator(args.input, args.batch_size)
+        if args.sample_rate < 1.0:
+            # 使用抽样迭代器
+            iterator = sampled_file_iterator(args.input, args.sample_rate)
+        else:
+            iterator = batch_iterator(args.input, args.batch_size, args.sample_rate)
         trainer.train_from_iterator(iterator)
     else:
         # 直接从文件训练
+        if args.sample_rate < 1.0:
+            print(f"警告: 文件模式不支持抽样，将使用全部数据")
+            print(f"建议使用 --use-iterator 参数启用抽样功能")
         print("使用文件模式训练...")
         trainer.train_from_files(args.input)
 
